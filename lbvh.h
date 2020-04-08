@@ -181,8 +181,20 @@ public:
   //! Indicates the number of internal nodes in the BVH.
   inline auto size() const noexcept { return nodes.size(); }
   //! Accesses a reference to a node within the BVH.
-  //! This function does not perform bounds checking.
+  //! An exception is thrown if the index is out of bounds.
+  //! To access nodes without bounds checking, use the [] operator.
+  //!
   //! \param index The index of the node to access.
+  //!
+  //! \return A const-reference to the specified node.
+  inline const node_type& at(size_type index) const {
+    return nodes.at(index);
+  }
+  //! Accesses a reference to a node within the BVH.
+  //! This function does not perform bounds checking.
+  //!
+  //! \param index The index of the node to access.
+  //!
   //! \returns A const-reference to the box type.
   inline const node_type& operator [] (size_type index) const noexcept {
     return nodes[index];
