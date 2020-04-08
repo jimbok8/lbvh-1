@@ -439,6 +439,33 @@ inline int_type ceil_div(int_type n, int_type d) {
   return (n / d) + ((n % d) ? 1 : 0);
 }
 
+//! Used for iterating a range of numbers in a for loop.
+struct loop_range final {
+  //! The beginning index of the range.
+  size_type begin;
+  //! The non-inclusive ending index of the range.
+  size_type end;
+  //! Constructs a loop range for an array and work division.
+  //! This makes it easy to divide work required on an array
+  //! into a given work division.
+  //!
+  //! \param div The work division given by the scheduler.
+  //!
+  //! \param array_size The size of the array being worked on.
+  loop_range(const work_division& div, size_type array_size) noexcept {
+
+    auto chunk_size = array_size / div.max;
+
+    begin = chunk_size * div.idx;
+
+    if ((div.idx + 1) == div.max) {
+      end = array_size;
+    } else {
+      end = begin + chunk_size;
+    }
+  }
+};
+
 //! \brief Calculates the Hadamard quotient of two vectors.
 //!
 //! \tparam scalar_type The scalar type of the vector components.
@@ -841,7 +868,9 @@ public:
 
     auto scene_size = size_of(scene_box);
 
-    for (size_type i = div.idx; i < count; i += div.max) {
+    auto range = loop_range(div, count);
+
+    for (size_type i = range.begin; i < range.end; i++) {
 
       auto center = center_of(converter(primitives[i]));
 
@@ -1071,19 +1100,9 @@ public:
 
     using index_type = typename node_type::index_type;
 
-    auto loop_max = curve.size() - 1;
+    auto range = loop_range(div, curve.size() - 1);
 
-    auto chunk_size = loop_max / div.max;
-
-    auto begin = chunk_size * div.idx;
-
-    auto end = begin + chunk_size;
-
-    if ((div.idx + 1) == div.max) {
-      end = loop_max;
-    }
-
-    for (size_type i = begin; i < end; i++) {
+    for (auto i = range.begin; i < range.end; i++) {
 
       auto div = divide_node(curve, i);
 
