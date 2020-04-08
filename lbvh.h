@@ -1047,33 +1047,63 @@ node_division divide_node(const space_filling_curve<code_type>& table, size_type
   };
 }
 
-template <typename code_type>
-auto build_nodes(const space_filling_curve<code_type>& curve) {
+//! \brief Used for building the BVH nodes.
+//! Can be called by the scheduler from many threads.
+//!
+//! \tparam code_type The type of code contained by the space filling curve.
+//!
+//! \tparam scalar_type The scalar type used by the node boxes.
+template <typename code_type, typename scalar_type>
+class builder_kernel final {
+public:
+  //! A type definition for a space filling curve.
+  using curve_type = space_filling_curve<code_type>;
+  //! A type definition for a node type.
+  using node_type = node<scalar_type>;
+  //! Constructs a new builder kernel.
+  //! \param c The curve containing the codes to build the nodes with.
+  //! \param n The allocated node array to put the node data into.
+  constexpr builder_kernel(const curve_type& c, node_type* n) noexcept
+    : curve(c), nodes(n) {}
+  //! Calls the kernel to build a certain portion of the BVH nodes.
+  //! \param div The division of work this function call is responsible for.
+  void operator () (const work_division& div) noexcept {
 
-  using float_type = typename associated_types<sizeof(code_type)>::float_type;
+    using index_type = typename node_type::index_type;
 
-  using node_type = node<float_type>;
+    auto loop_max = curve.size() - 1;
 
-  using index_type = typename associated_types<sizeof(float_type)>::uint_type;
+    auto chunk_size = loop_max / div.max;
 
-  std::vector<node_type> node_vec(curve.size() -1 );
+    auto begin = chunk_size * div.idx;
 
-  for (size_type i = 0; i < (curve.size() - 1); i++) {
+    auto end = begin + chunk_size;
 
-    auto div = divide_node(curve, i);
+    if ((div.idx + 1) == div.max) {
+      end = loop_max;
+    }
 
-    auto l_is_leaf = (div.min() == (div.split + 0));
-    auto r_is_leaf = (div.max() == (div.split + 1));
+    for (size_type i = begin; i < end; i++) {
 
-    auto l_mask = l_is_leaf ? highest_bit<index_type>() : 0;
-    auto r_mask = r_is_leaf ? highest_bit<index_type>() : 0;
+      auto div = divide_node(curve, i);
 
-    node_vec[i].left  = (div.split + 0) | l_mask;
-    node_vec[i].right = (div.split + 1) | r_mask;
+      auto l_is_leaf = (div.min() == (div.split + 0));
+      auto r_is_leaf = (div.max() == (div.split + 1));
+
+      auto l_mask = l_is_leaf ? highest_bit<index_type>() : 0;
+      auto r_mask = r_is_leaf ? highest_bit<index_type>() : 0;
+
+      nodes[i].left  = (div.split + 0) | l_mask;
+      nodes[i].right = (div.split + 1) | r_mask;
+    }
   }
-
-  return node_vec;
-}
+private:
+  //! This is the space filling curve used to determine
+  //! the range and split of each node that this kernel will build.
+  const curve_type& curve;
+  //! A pointer to the node array being constructed.
+  node_type* nodes;
+};
 
 } // namespace detail
 
@@ -1085,17 +1115,25 @@ template <typename scalar_type, typename task_scheduler>
 template <typename primitive, typename aabb_converter>
 auto builder<scalar_type, task_scheduler>::operator () (const primitive* primitives, size_type count, aabb_converter converter) -> bvh_type {
 
-  detail::morton_curve_builder<scalar_type, task_scheduler> curve_builder(scheduler);
+  using node_type = node<scalar_type>;
+
+  using curve_builder_type = detail::morton_curve_builder<scalar_type, task_scheduler>;
+
+  curve_builder_type curve_builder(scheduler);
 
   auto curve = curve_builder(primitives, count, converter);
 
   curve.sort();
 
-  auto nodes = detail::build_nodes(curve);
+  std::vector<node_type> node_vec(curve.size() - 1);
 
-  fit_boxes(nodes, primitives, converter);
+  detail::builder_kernel builder_kernel(curve, node_vec.data());
 
-  return bvh_type(std::move(nodes));
+  scheduler(builder_kernel);
+
+  fit_boxes(node_vec, primitives, converter);
+
+  return bvh_type(std::move(node_vec));
 };
 
 template <typename scalar_type, typename task_scheduler>
