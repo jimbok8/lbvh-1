@@ -2,6 +2,8 @@
 
 #include "models/model.h"
 
+#include "fake_thread_pool.h"
+
 #include <chrono>
 
 #include <cstdio>
@@ -121,7 +123,17 @@ int main(int argc, char** argv) {
 
   auto face_indices = model.get_face_indices();
 
+#ifndef LBVH_NO_THREADS
+
+  lbvh::fake_task_scheduler fake_scheduler(std::thread::hardware_concurrency());
+
+  lbvh::builder<float, lbvh::fake_task_scheduler> builder(fake_scheduler);
+
+#else // LBVH_NO_THREADS
+
   lbvh::builder<float> builder;
+
+#endif // LBVH_NO_THREADS
 
   auto start = std::chrono::high_resolution_clock::now();
 

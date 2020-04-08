@@ -1,5 +1,8 @@
 #pragma once
 
+#include <vector>
+#include <thread>
+
 namespace lbvh {
 
 //! \brief Emulates a task scheduler.
@@ -9,8 +12,6 @@ namespace lbvh {
 //! threads instead of creating them
 //! once and using synchronization mechanisms.
 class fake_task_scheduler final {
-  //! These run the tasks sent to the scheduler.
-  std::vector<std::thread> threads;
   //! The maximum number of threads to run.
   size_type max_threads;
 public:
@@ -24,6 +25,8 @@ public:
   template <typename task_type, typename... arg_types>
   void operator () (task_type task, arg_types... args) {
 
+    std::vector<std::thread> threads;
+
     for (size_type i = 0; i < max_threads; i++) {
 
       work_division div { i, max_threads };
@@ -34,8 +37,6 @@ public:
     for (auto& th : threads) {
       th.join();
     }
-
-    threads.clear();
   }
 };
 

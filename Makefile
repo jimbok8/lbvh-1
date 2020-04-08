@@ -13,7 +13,7 @@ endif
 ifdef LBVH_NO_THREADS
 CXXFLAGS := $(CXXFLAGS) -DLBVH_NO_THREADS=1
 else
-LDLIBS += -ltbb
+LDLIBS += -ltbb -lpthread
 endif
 
 examples += examples/minimal

@@ -78,7 +78,7 @@ public:
   //! Issues a new task to be performed.
   //! In this class, the task immediately is called in the current thread.
   template <typename task_type, typename... arg_types>
-  void operator () (task_type task, arg_types... args) {
+  inline void operator () (task_type task, arg_types... args) noexcept {
     task(work_division { 0, 1 }, args...);
   }
 };
@@ -793,6 +793,69 @@ protected:
   }
 };
 
+//! This class is used for computing part or all
+//! of a Morton curve. It may be called from multiple threads.
+//!
+//! \tparam scalar_type The type of scalar used in the scene primitives.
+//!
+//! \tparam primitive_type The type of primitive in the scene.
+template <typename scalar_type, typename primitive_type>
+class morton_curve_kernel final {
+public:
+  //! A type definition for a code value.
+  using code_type = typename associated_types<sizeof(scalar_type)>::uint_type;
+  //! A type definition for an entry in the space filling curve.
+  using entry = typename space_filling_curve<code_type>::entry;
+  //! Constructs a new Morton curve kernel.
+  //! \param p The primitive array to generate the values from.
+  //! \param e The entry array to receive the values.
+  //! \param c The number of primitives in the array.
+  constexpr morton_curve_kernel(const primitive_type* p, entry* e, size_type c) noexcept
+    : primitives(p), entries(e), count(c) {}
+  //! Calculates the Morton codes of a certain subset of the scene.
+  //! The amount of work that's done depends on the work division.
+  //!
+  //! \param div Passed by the scheduler to indicate the amount of work to do.
+  //!
+  //! \param scene_box The bounding box for the scene.
+  //!
+  //! \param converter The primitive to bounding box converter.
+  template <typename aabb_converter>
+  void operator () (const work_division& div, const aabb<scalar_type>& scene_box, aabb_converter converter) {
+
+    auto mdomain = scalar_type(morton_domain<sizeof(scalar_type)>::value());
+
+    morton_encoder<sizeof(code_type)> encoder;
+
+    auto scene_size = size_of(scene_box);
+
+    for (size_type i = div.idx; i < count; i += div.max) {
+
+      auto center = center_of(converter(primitives[i]));
+
+      // Normalize to bounded interval: 0 < x < 1
+
+      auto normalized_center = hadamard_division((center - scene_box.min), scene_size);
+
+      // Convert to point in "Morton space"
+
+      auto morton_center = normalized_center * mdomain;
+
+      auto code = encoder(morton_center.x, morton_center.y, morton_center.z);
+
+      entries[i] = entry { code, i };
+    }
+  }
+private:
+  //! The primitives the curve is being generated from.
+  const primitive_type* primitives;
+  //! The entries to receive the calculated values.
+  entry* entries;
+  //! The number of primitives in the scene.
+  //! This is also the number of entries.
+  size_type count;
+};
+
 //! \brief This class is used for generating Morton curves.
 //!
 //! \tparam scalar_type The type for the 3D points
@@ -826,33 +889,15 @@ public:
   template <typename primitive, typename aabb_converter>
   curve_type operator () (const primitive* primitives, size_type count, aabb_converter converter) {
 
-    using entry = typename curve_type::entry;
     using entry_vec = typename curve_type::entry_vec;
 
     entry_vec entries(count);
 
-    auto scene_size = size_of(scene_bounds<scalar_type>::get(primitives, count, converter));
+    auto scene_box = scene_bounds<scalar_type>::get(primitives, count, converter);
 
-    auto mdomain = scalar_type(morton_domain<sizeof(scalar_type)>::value());
+    morton_curve_kernel<scalar_type, primitive> kernel(primitives, entries.data(), count);
 
-    morton_encoder<sizeof(code_type)> encoder;
-
-    for (size_type i = 0; i < count; i++) {
-
-      auto center = center_of(converter(primitives[i]));
-
-      // Normalize to bounded interval: 0 < x < 1
-
-      auto normalized_center = hadamard_division(center, scene_size);
-
-      // Convert to point in "Morton space"
-
-      auto morton_center = normalized_center * mdomain;
-
-      auto code = encoder(morton_center.x, morton_center.y, morton_center.z);
-
-      entries[i] = entry { code, i };
-    }
+    scheduler(kernel, scene_box, converter);
 
     return curve_type(std::move(entries));
   }
