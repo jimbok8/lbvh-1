@@ -28,9 +28,9 @@ int main() {
   // This is the scene we want to build
   // a BVH for, just three spheres.
   sphere spheres[3] {
-    { 2, {  5,  2, -30 } },
-    { 5, { 12, -6, -90 } },
-    { 6, { 25,  1, -50 } }
+    { 1, {  5,  1, -5 } },
+    { 1, {  0,  2, -5 } },
+    { 1, { -5,  1, -5 } }
   };
 
   // This is the lamba function we'll be
@@ -162,7 +162,7 @@ int main() {
         auto offset = ((y * w) + x) * 3;
         image_buf[offset + 0] = isect.uv.x * 255;
         image_buf[offset + 1] = isect.uv.y * 255;
-        image_buf[offset + 2] = 0;
+        image_buf[offset + 2] = 127;
       }
     }
   }
