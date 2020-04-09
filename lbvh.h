@@ -376,6 +376,48 @@ struct ray final {
                        const vec_type& d) noexcept;
 };
 
+//! \brief A packet of 3D vectors,
+//! arranged for decent alignment.
+//!
+//! \param scalar_type The type of the vector components.
+//!
+//! \param count The number of elements per dimension.
+template <typename scalar_type, size_type count>
+struct vec3_packet final {
+  //! The X values of the vector packet.
+  scalar_type x[count];
+  //! The Y values of the vector packet.
+  scalar_type y[count];
+  //! The Z values of the vector packet.
+  scalar_type z[count];
+};
+
+//! This class is used to store a packet of rays.
+//! A packet of rays can be traversed faster than
+//! one ray at a time because it leads to better
+//! caching, auto-vectorization, and better coherency.
+//!
+//! \tparam scalar_type The type to use for vector components.
+//!
+//! \tparam count The maximum number of rays to put into the packet.
+template <typename scalar_type, size_type count>
+struct ray_packet final {
+  //! A type definition for ray indices.
+  using index_type = typename associated_types<sizeof(scalar_type)>::uint_type;
+  //! The position vectors of the rays.
+  vec3_packet<scalar_type, count> pos;
+  //! The direction vectors of the rays.
+  vec3_packet<scalar_type, count> dir;
+  //! The reciprocal direction vectors.
+  vec3_packet<scalar_type, count> rcp_dir;
+  //! These are the indices that each ray corresponds to.
+  //! Since a ray packet may be sorted multiple times
+  //! throughout a BVH traversal, tracking their original
+  //! indices allows them to be reordered after a BVH
+  //! node is exited.
+  index_type indices[count];
+};
+
 //! \brief This class is used for traversing a BVH.
 //!
 //! \tparam scalar_type The floating point type to use for vector components.
