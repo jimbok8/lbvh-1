@@ -34,7 +34,7 @@ lbvh_test: lbvh_test.o models/tiny_obj_loader.o
 	$(CXX) $^ -o $@ $(LDLIBS)
 
 lbvh_test.o: lbvh_test.cpp lbvh.h models/model.h models/tiny_obj_loader.h
-	$(CXX) $(CXXFLAGS) -c $< -o $@ $(LDLIBS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 models/tiny_obj_loader.o: models/tiny_obj_loader.cc models/tiny_obj_loader.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@

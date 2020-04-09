@@ -396,9 +396,25 @@ struct vec_packet final {
   static inline constexpr size_type size() noexcept {
     return count;
   }
+  //! Accesses a pointer to a dimension within the vector packet.
+  //!
+  //! \param d The index of the dimension to get the values of.
+  //!
+  //! \return A pointer to the start of the dimension values.
+  inline auto* operator [] (size_type d) noexcept {
+    return &values[d * count];
+  }
+  //! Accesses a pointer to a dimension within the vector packet.
+  //!
+  //! \param d The index of the dimension to get the values of.
+  //!
+  //! \return A pointer to the start of the dimension values.
+  inline const auto* operator [] (size_type d) const noexcept {
+    return &values[d * count];
+  }
   //! The values of the vector packet.
   //! Dimensions are non-interleaved in this array.
-  scalar_type values[value_count()];
+  scalar_type values[value_count()] {};
 };
 
 //! This class is used to store a packet of rays.
@@ -542,20 +558,6 @@ inline constexpr scalar_type dot(const vec3<scalar_type>& a,
   return out;
 }
 
-//! \brief Normalizes a vector.
-//! This is useful when dealing with trig functions.
-//!
-//! \return The normalized result of @p v.
-template <typename scalar_type>
-vec3<scalar_type> normalize(const vec3<scalar_type>& v) noexcept {
-
-  using std::sqrt;
-
-  auto l_inv = scalar_type(1) / sqrt(dot(v, v));
-
-  return v * l_inv;
-}
-
 //! \brief Calculates the minimum between two vectors.
 //! This is used frequently in bounding box calculations.
 //!
@@ -647,6 +649,129 @@ auto operator * (const vec3<scalar_type>& a, scalar_type b) noexcept {
     a.y * b,
     a.z * b
   };
+}
+
+//! \brief Normalizes a vector.
+//! This is useful when dealing with trig functions.
+//!
+//! \return The normalized result of @p v.
+template <typename scalar_type>
+vec3<scalar_type> normalize(const vec3<scalar_type>& v) noexcept {
+
+  using std::sqrt;
+
+  auto l_inv = scalar_type(1) / sqrt(dot(v, v));
+
+  return v * l_inv;
+}
+
+//! \brief This structure implements various vector packet operations.
+//! Since these operations require various template parameters, they are
+//! best implemented in a structure where type definitions can make the code
+//! much more readable.
+//!
+//! \tparam scalar_type The scalar type of the vector components.
+//!
+//! \tparam dimensions The number of dimensions the vectors will have.
+//!
+//! \tparam count The number of elements per dimension for each vector.
+template <typename scalar_type,
+          size_type dimensions,
+          size_type count>
+struct vec_packet_ops final {
+  //! A type definition for a vector packet.
+  using vec_packet_type = vec_packet<scalar_type, dimensions, count>;
+  //! Computes the Hadamard product of two vectors.
+  //!
+  //! \return The Hadamard product of @p a and @p b.
+  static constexpr auto hadamard_mul(const vec_packet_type& a, const vec_packet_type& b) noexcept {
+    vec_packet_type out;
+    for (size_type i = 0; i < vec_packet_type::value_count(); i++) {
+      out.values[i] = a.values[i] * b.values[i];
+    }
+    return out;
+  }
+  //! Subtracts two vectors.
+  //!
+  //! \return The difference between @p a and @p b.
+  static constexpr auto sub(const vec_packet_type& a, const vec_packet_type& b) noexcept {
+    vec_packet_type out;
+    for (size_type i = 0; i < vec_packet_type::value_count(); i++) {
+      out.values[i] = a.values[i] - b.values[i];
+    }
+    return out;
+  }
+  //! Multiplies a vector packet by a scalar value.
+  //!
+  //! \return The product of @p a and @p b.
+  static constexpr auto mul(const vec_packet_type& a, scalar_type b) noexcept {
+    vec_packet_type out;
+    for (size_type i = 0; i < vec_packet_type::value_count(); i++) {
+      out.values[i] = a.values[i] * b;
+    }
+    return out;
+  }
+};
+
+//! Subtracts two vector packets.
+//!
+//! \return The difference of @p a and @p b.
+template <typename scalar_type, size_type dimensions, size_type count>
+constexpr auto operator - (const vec_packet<scalar_type, dimensions, count>& a,
+                           const vec_packet<scalar_type, dimensions, count>& b) noexcept {
+  return vec_packet_ops<scalar_type, dimensions, count>::sub(a, b);
+}
+
+//! Multiplies a vector packet by a single scalar value.
+//!
+//! \return The product of @p a and @p b, as a vector packet.
+template <typename scalar_type, size_type dimensions, size_type count>
+constexpr auto operator * (const vec_packet<scalar_type, dimensions, count>& a, scalar_type b) noexcept {
+  return vec_packet_ops<scalar_type, dimensions, count>::mul(a, b);
+}
+
+//! Multiplies a 3D vector packet by a single 3D vector.
+//!
+//! \tparam scalar_type The scalar type of the vector components.
+//!
+//! \tparam count The number of elements per dimension in the vector packet.
+//!
+//! \return The product of @p a and @p b.
+template <typename scalar_type, size_type count>
+constexpr auto hadamard_mul(const vec_packet<scalar_type, 3, count>& a,
+                            const vec3<scalar_type>& b) noexcept {
+
+  vec_packet<scalar_type, 3, count> out;
+
+  for (size_type i = 0; i < vec_packet<scalar_type, 3, count>::size(); i++) {
+    out[0][i] = a[0][i] * b.x;
+    out[1][i] = a[1][i] * b.y;
+    out[2][i] = a[2][i] * b.z;
+  }
+
+  return out;
+}
+
+//! \brief Subtracts a single 3D vector from a 3D vector packet.
+//!
+//! \tparam scalar_type The type used by the vector components.
+//!
+//! \tparam count The number of elements in one dimension.
+//!
+//! \return The difference between @p a and @p b.
+template <typename scalar_type, size_type count>
+constexpr auto operator - (const vec_packet<scalar_type, 3, count>& a,
+                           const vec3<scalar_type>& b) noexcept {
+
+  vec_packet<scalar_type, 3, count> out;
+
+  for (size_type i = 0; i < vec_packet<scalar_type, 3, count>::size(); i++) {
+    out[0][i] = a[0][i] - b.x;
+    out[1][i] = a[1][i] - b.y;
+    out[2][i] = a[2][i] - b.z;
+  }
+
+  return out;
 }
 
 } // namespace math
@@ -1057,6 +1182,10 @@ public:
   template <typename aabb_converter>
   void operator () (const work_division& div, const aabb<scalar_type>& scene_box, aabb_converter converter) {
 
+    //! This is the maximum number of primitives to
+    //! work on per loop iteration.
+    constexpr size_type max_batch_size = 16;
+
     auto mdomain = scalar_type(morton_domain<sizeof(scalar_type)>::value());
 
     morton_encoder<sizeof(code_type)> encoder;
@@ -1065,21 +1194,37 @@ public:
 
     auto range = loop_range(div, count);
 
-    for (size_type i = range.begin; i < range.end; i++) {
+    vec_packet<scalar_type, 3, max_batch_size> center_packet;
 
-      auto center = center_of(converter(primitives[i]));
+    for (size_type i = range.begin; i < range.end; i += max_batch_size) {
+
+      auto batch_size = min(max_batch_size, range.end - i);
+
+      for (size_type j = 0; j < batch_size; j++) {
+        auto center = center_of(converter(primitives[i]));
+        center_packet[0][j] = center.x;
+        center_packet[1][j] = center.y;
+        center_packet[2][j] = center.z;
+      }
 
       // Normalize to bounded interval: 0 < x < 1
 
-      auto normalized_center = hadamard_mul((center - scene_box.min), scene_size_rcp);
+      center_packet = hadamard_mul((center_packet - scene_box.min), scene_size_rcp);
 
       // Convert to point in "Morton space"
 
-      auto morton_center = normalized_center * mdomain;
+      center_packet = center_packet * mdomain;
 
-      auto code = encoder(morton_center.x, morton_center.y, morton_center.z);
+      // Export Morton codes
 
-      entries[i] = entry { code, i };
+      for (size_type j = 0; j < batch_size; j++) {
+
+        auto code = encoder(center_packet[0][j],
+                            center_packet[1][j],
+                            center_packet[2][j]);
+
+        entries[i + j] = entry { code, i + j };
+      }
     }
   }
 private:
