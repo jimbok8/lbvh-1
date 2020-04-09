@@ -379,17 +379,26 @@ struct ray final {
 //! \brief A packet of 3D vectors,
 //! arranged for decent alignment.
 //!
-//! \param scalar_type The type of the vector components.
+//! \tparam scalar_type The type of the vector components.
 //!
-//! \param count The number of elements per dimension.
-template <typename scalar_type, size_type count>
-struct vec3_packet final {
-  //! The X values of the vector packet.
-  scalar_type x[count];
-  //! The Y values of the vector packet.
-  scalar_type y[count];
-  //! The Z values of the vector packet.
-  scalar_type z[count];
+//! \tparam dimensions The number of dimensions in the vector.
+//!
+//! \tparam count The number of elements per dimension.
+template <typename scalar_type,
+          size_type dimensions,
+          size_type count>
+struct vec_packet final {
+  //! Indicates the total number of scalars in this vector packet.
+  static inline constexpr size_type value_count() noexcept {
+    return dimensions * count;
+  }
+  //! Indicates the number of scalars per dimension.
+  static inline constexpr size_type size() noexcept {
+    return count;
+  }
+  //! The values of the vector packet.
+  //! Dimensions are non-interleaved in this array.
+  scalar_type values[value_count()];
 };
 
 //! This class is used to store a packet of rays.
@@ -405,11 +414,11 @@ struct ray_packet final {
   //! A type definition for ray indices.
   using index_type = typename associated_types<sizeof(scalar_type)>::uint_type;
   //! The position vectors of the rays.
-  vec3_packet<scalar_type, count> pos;
+  vec_packet<scalar_type, 3, count> pos;
   //! The direction vectors of the rays.
-  vec3_packet<scalar_type, count> dir;
+  vec_packet<scalar_type, 3, count> dir;
   //! The reciprocal direction vectors.
-  vec3_packet<scalar_type, count> rcp_dir;
+  vec_packet<scalar_type, 3, count> rcp_dir;
   //! These are the indices that each ray corresponds to.
   //! Since a ray packet may be sorted multiple times
   //! throughout a BVH traversal, tracking their original
@@ -472,26 +481,52 @@ struct associated_types<8> final {
   using float_type = double;
 };
 
-//! \brief This namespaces contains implementation details
-//! of the library. It shouldn't be used by the end-user.
-namespace detail {
+//! \brief This namespace contains various math routines
+//! for scalar and vector types. It may be useful to the
+//! user when writing intersection functions or primitive
+//! to box conversions.
+namespace math {
 
-//! \brief Counts leading zeroes of a 32-bit integer.
-inline auto clz(std::uint32_t n) noexcept {
-#ifdef _MSC_VER
-  return __lzcnt(n);
-#else
-  return __builtin_clz(n);
-#endif
+//! \brief Calculates the minimum of two scalar values.
+template <typename scalar_type>
+inline constexpr scalar_type min(scalar_type a, scalar_type b) noexcept {
+  return (a < b) ? a : b;
 }
 
-//! \brief Counts leading zeroes of a 64-bit integer.
-inline auto clz(std::uint64_t n) noexcept {
-#ifdef _MSC_VER
-  return __lzcnt64(n);
-#else
-  return __builtin_clzll(n);
-#endif
+//! \brief Calculates the maximum of two scalar values.
+template <typename scalar_type>
+inline constexpr scalar_type max(scalar_type a, scalar_type b) noexcept {
+  return (a > b) ? a : b;
+}
+
+//! \brief Calculates the Hadamard quotient of two vectors.
+//!
+//! \tparam scalar_type The scalar type of the vector components.
+//!
+//! \return The Hadamard quotient of the two vectors.
+template <typename scalar_type>
+auto hadamard_div(const vec3<scalar_type>& a,
+                  const vec3<scalar_type>& b) noexcept {
+  return vec3<scalar_type> {
+    a.x / b.x,
+    a.y / b.y,
+    a.z / b.z
+  };
+}
+
+//! \brief Calculates the Hadamard product of two vectors.
+//!
+//! \tparam scalar_type The scalar type of the vector components.
+//!
+//! \return The Hadamard product of the two vectors.
+template <typename scalar_type>
+auto hadamard_mul(const vec3<scalar_type>& a,
+                  const vec3<scalar_type>& b) noexcept {
+  return vec3<scalar_type> {
+    a.x * b.x,
+    a.y * b.y,
+    a.z * b.z
+  };
 }
 
 //! \brief Calculates the dot product of two 3D vectors.
@@ -519,81 +554,6 @@ vec3<scalar_type> normalize(const vec3<scalar_type>& v) noexcept {
   auto l_inv = scalar_type(1) / sqrt(dot(v, v));
 
   return v * l_inv;
-}
-
-//! \brief Calculates the minimum of two scalar values.
-template <typename scalar_type>
-inline constexpr scalar_type min(scalar_type a, scalar_type b) noexcept {
-  return (a < b) ? a : b;
-}
-
-//! \brief Calculates the maximum of two scalar values.
-template <typename scalar_type>
-inline constexpr scalar_type max(scalar_type a, scalar_type b) noexcept {
-  return (a > b) ? a : b;
-}
-
-//! \brief Gets the sign of a number, as an integer.
-//!
-//! \return The sign of @p n. If @p n is negative,
-//! then negative one is returned. If @p n is greater
-//! than or equal to positive zero, then positive one
-//! is returned.
-template <typename scalar_type>
-inline constexpr scalar_type sign(scalar_type n) noexcept {
-  return (n < 0) ? -1 : 1;
-}
-
-//! Divides and rounds up to the nearest integer.
-//!
-//! \tparam int_type The integer type to divide with.
-//!
-//! \return The quotient between @p n and @ d, rounded up.
-template <typename int_type>
-inline int_type ceil_div(int_type n, int_type d) {
-  return (n / d) + ((n % d) ? 1 : 0);
-}
-
-//! Used for iterating a range of numbers in a for loop.
-struct loop_range final {
-  //! The beginning index of the range.
-  size_type begin;
-  //! The non-inclusive ending index of the range.
-  size_type end;
-  //! Constructs a loop range for an array and work division.
-  //! This makes it easy to divide work required on an array
-  //! into a given work division.
-  //!
-  //! \param div The work division given by the scheduler.
-  //!
-  //! \param array_size The size of the array being worked on.
-  loop_range(const work_division& div, size_type array_size) noexcept {
-
-    auto chunk_size = array_size / div.max;
-
-    begin = chunk_size * div.idx;
-
-    if ((div.idx + 1) == div.max) {
-      end = array_size;
-    } else {
-      end = begin + chunk_size;
-    }
-  }
-};
-
-//! \brief Calculates the Hadamard quotient of two vectors.
-//!
-//! \tparam scalar_type The scalar type of the vector components.
-//!
-//! \return The Hadamard quotient of the two vectors.
-template <typename scalar_type>
-auto hadamard_division(const vec3<scalar_type>& a,
-                       const vec3<scalar_type>& b) noexcept {
-  return vec3<scalar_type> {
-    a.x / b.x,
-    a.y / b.y,
-    a.z / b.z
-  };
 }
 
 //! \brief Calculates the minimum between two vectors.
@@ -688,6 +648,80 @@ auto operator * (const vec3<scalar_type>& a, scalar_type b) noexcept {
     a.z * b
   };
 }
+
+} // namespace math
+
+//! \brief This namespaces contains implementation details
+//! of the library. It shouldn't be used by the end-user.
+namespace detail {
+
+using namespace lbvh::math;
+
+//! \brief Counts leading zeroes of a 32-bit integer.
+inline auto clz(std::uint32_t n) noexcept {
+#ifdef _MSC_VER
+  return __lzcnt(n);
+#else
+  return __builtin_clz(n);
+#endif
+}
+
+//! \brief Counts leading zeroes of a 64-bit integer.
+inline auto clz(std::uint64_t n) noexcept {
+#ifdef _MSC_VER
+  return __lzcnt64(n);
+#else
+  return __builtin_clzll(n);
+#endif
+}
+
+//! \brief Gets the sign of a number, as an integer.
+//!
+//! \return The sign of @p n. If @p n is negative,
+//! then negative one is returned. If @p n is greater
+//! than or equal to positive zero, then positive one
+//! is returned.
+template <typename scalar_type>
+inline constexpr scalar_type sign(scalar_type n) noexcept {
+  return (n < 0) ? -1 : 1;
+}
+
+//! Divides and rounds up to the nearest integer.
+//!
+//! \tparam int_type The integer type to divide with.
+//!
+//! \return The quotient between @p n and @ d, rounded up.
+template <typename int_type>
+inline int_type ceil_div(int_type n, int_type d) {
+  return (n / d) + ((n % d) ? 1 : 0);
+}
+
+//! Used for iterating a range of numbers in a for loop.
+struct loop_range final {
+  //! The beginning index of the range.
+  size_type begin;
+  //! The non-inclusive ending index of the range.
+  size_type end;
+  //! Constructs a loop range for an array and work division.
+  //! This makes it easy to divide work required on an array
+  //! into a given work division.
+  //!
+  //! \param div The work division given by the scheduler.
+  //!
+  //! \param array_size The size of the array being worked on.
+  loop_range(const work_division& div, size_type array_size) noexcept {
+
+    auto chunk_size = array_size / div.max;
+
+    begin = chunk_size * div.idx;
+
+    if ((div.idx + 1) == div.max) {
+      end = array_size;
+    } else {
+      end = begin + chunk_size;
+    }
+  }
+};
 
 //! Checks for ray intersection with a bounding box.
 //!
@@ -1027,7 +1061,7 @@ public:
 
     morton_encoder<sizeof(code_type)> encoder;
 
-    auto scene_size = size_of(scene_box);
+    auto scene_size_rcp = reciprocal(size_of(scene_box));
 
     auto range = loop_range(div, count);
 
@@ -1037,7 +1071,7 @@ public:
 
       // Normalize to bounded interval: 0 < x < 1
 
-      auto normalized_center = hadamard_division((center - scene_box.min), scene_size);
+      auto normalized_center = hadamard_mul((center - scene_box.min), scene_size_rcp);
 
       // Convert to point in "Morton space"
 
@@ -1295,7 +1329,7 @@ private:
 
 template <typename scalar_type>
 constexpr ray<scalar_type>::ray(const vec_type& p, const vec_type& d) noexcept
-  : pos(p), dir(d), rcp_dir(detail::reciprocal(d)) {}
+  : pos(p), dir(d), rcp_dir(math::reciprocal(d)) {}
 
 template <typename scalar_type, typename task_scheduler>
 template <typename primitive, typename aabb_converter>

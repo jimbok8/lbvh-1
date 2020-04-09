@@ -85,7 +85,7 @@ int main() {
     // that's already in lbvh.h, to avoid
     // writing some extra code.
 
-    using namespace lbvh::detail;
+    using namespace lbvh::math;
 
     lbvh::vec3<float> s_pos {
       s.pos[0],

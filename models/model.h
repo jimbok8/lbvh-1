@@ -159,12 +159,12 @@ public:
     auto b = m.get_vertex(face.v[1]);
     auto c = m.get_vertex(face.v[2]);
     
-    auto tmp_min = detail::min(a, b);
-    auto tmp_max = detail::max(a, b);
+    auto tmp_min = math::min(a, b);
+    auto tmp_max = math::max(a, b);
 
     return box_type {
-      detail::min(tmp_min, c),
-      detail::max(tmp_max, c)
+      math::min(tmp_min, c),
+      math::max(tmp_max, c)
     };
   }
 private:
