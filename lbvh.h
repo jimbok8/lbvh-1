@@ -1516,11 +1516,11 @@ void builder<scalar_type, task_scheduler>::fit_boxes(node_vec& nodes, const prim
     auto j = indices[i];
 
     if (!nodes[j].left_is_leaf()) {
-      indices.push_back(nodes[j].left_leaf_index());
+      indices.push_back(nodes[j].left);
     }
 
     if (!nodes[j].right_is_leaf()) {
-      indices.push_back(nodes[j].right_leaf_index());
+      indices.push_back(nodes[j].right);
     }
   }
 
@@ -1530,16 +1530,16 @@ void builder<scalar_type, task_scheduler>::fit_boxes(node_vec& nodes, const prim
 
     auto& node = nodes[j];
 
-    if (!node.left_is_leaf()) {
-      node.box = nodes[node.left].box;
-    } else {
+    if (node.left_is_leaf()) {
       node.box = converter(primitives[node.left_leaf_index()]);
+    } else {
+      node.box = nodes[node.left].box;
     }
 
-    if (!node.right_is_leaf()) {
-      node.box = detail::union_of(node.box, nodes[node.right].box);
-    } else {
+    if (node.right_is_leaf()) {
       node.box = detail::union_of(node.box, converter(primitives[node.right_leaf_index()]));
+    } else {
+      node.box = detail::union_of(node.box, nodes[node.right].box);
     }
   }
 }
