@@ -464,7 +464,7 @@ public:
   //! Constructs a new traverser instance.
   //! \param b The BVH to be traversed.
   //! \param p The primitives to check for intersection in each box.
-  constexpr traverser(bvh<scalar_type>& b, const primitive_type* p) noexcept
+  constexpr traverser(const bvh<scalar_type>& b, const primitive_type* p) noexcept
     : bvh_(b), primitives(p) {}
   //! \brief Traverses the BVH, returning the closest intersection that was made.
   //!
