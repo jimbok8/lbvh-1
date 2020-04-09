@@ -81,6 +81,11 @@ public:
   inline void operator () (task_type task, arg_types... args) noexcept {
     task(work_division { 0, 1 }, args...);
   }
+  //! Indicates the maximum number of threads
+  //! to be invoked at a time.
+  inline size_type max_threads() const noexcept {
+    return 1;
+  }
 };
 
 //! \brief Calculates the highest bit for an integer type.
@@ -731,28 +736,74 @@ auto size_of(const aabb<scalar_type>& box) noexcept {
 //! \brief This class is used for calculating the boundaries of a scene.
 //!
 //! \tparam scalar_type The scalar type of the bounding box to get.
-template <typename scalar_type>
-struct scene_bounds final {
+//!
+//! \tparam primitive_type The type of primitive in the scene.
+//!
+//! \tparam aabb_converter Calculates the bounding box of a primitive.
+template <typename scalar_type, typename primitive_type, typename aabb_converter>
+class scene_bounds_kernel final {
+public:
   //! A type definition for a type returned by this class.
   using box_type = aabb<scalar_type>;
-  //! Calculates the bounds of a scene.
+  //! Constructs a new scene bounds kernel.
   //!
-  //! \param primitives the primitives to get the bounding boxes of.
+  //! \param p The primitive of arrays to get the bounds for.
   //!
-  //! \param aabb_converter The primitive to box converter.
+  //! \param c The number of primitives in the array.
   //!
-  //! \return The bounding box for the scene.
-  template <typename primitive, typename aabb_converter>
-  static auto get(const primitive* primitives, size_type count, aabb_converter converter) {
+  //! \param cvt The primitive to bounding box converter.
+  //!
+  //! \param th_count The maximum thread count of the scheduler.
+  //! This is used to allocate an array for each each thread gets its own AABB.
+  scene_bounds_kernel(const primitive_type* p, size_type c, aabb_converter cvt, size_type th_count)
+    : primitives(p), count(c), converter(cvt), thread_boxes(th_count) {
+  }
+  //! Runs the kernel.
+  //! Each thread accumulates its own bounding box
+  //! for the portion of the scene it was assigned.
+  //! When the result is queried, all boxes for each
+  //! of the threads are put into union.
+  //!
+  //! \param div Given by the scheduler to indicate which
+  //! portion of the scene this call should get the bounding box of.
+  void operator () (const work_division& div) noexcept {
+
+    auto range = loop_range(div, count);
+
+    auto box = get_empty_aabb<scalar_type>();
+
+    for (size_type i = range.begin; i < range.end; i++) {
+      box = union_of(box, converter(primitives[i]));
+    }
+
+    thread_boxes[div.idx] = box;
+  }
+  //! After calling the kernel, this function may be used
+  //! to get the bounding box of the scene. Internally, this
+  //! function will get the union of each box calculated by
+  //! each thread issued by the scheduler.
+  //!
+  //! \return The bounding box of the scene.
+  auto get() const noexcept {
 
     auto scene_box = get_empty_aabb<scalar_type>();
 
-    for (size_type i = 0; i < count; i++) {
-      scene_box = union_of(scene_box, converter(primitives[i]));
+    for (const auto& th_box : thread_boxes) {
+      scene_box = union_of(scene_box, th_box);
     }
 
     return scene_box;
   }
+private:
+  //! The array of primitives to get the bounding box of.
+  const primitive_type* primitives;
+  //! The number of primitives in the primitive array.
+  size_type count;
+  //! The primitive to bounding box converter.
+  aabb_converter converter;
+  //! The array of boxes, each box allocated
+  //! for a thread.
+  std::vector<box_type> thread_boxes;
 };
 
 //! \brief Used to get the domain of Morton coordinates,
@@ -932,9 +983,15 @@ public:
 
     using entry_vec = typename curve_type::entry_vec;
 
+    using scene_bounds_kernel_type = scene_bounds_kernel<scalar_type, primitive, aabb_converter>;
+
     entry_vec entries(count);
 
-    auto scene_box = scene_bounds<scalar_type>::get(primitives, count, converter);
+    scene_bounds_kernel_type scene_bounds_kern(primitives, count, converter, scheduler.max_threads());
+
+    scheduler(scene_bounds_kern);
+
+    auto scene_box = scene_bounds_kern.get();
 
     morton_curve_kernel<scalar_type, primitive> kernel(primitives, entries.data(), count);
 
