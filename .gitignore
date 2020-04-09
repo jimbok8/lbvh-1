@@ -2,3 +2,4 @@ lbvh_test
 examples/minimal
 config.mk
 result.ppm
+*.o
