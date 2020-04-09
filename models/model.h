@@ -172,4 +172,30 @@ private:
   const model_type& m;
 };
 
+//! Used to detect intersections between rays and model faces.
+//!
+//! \tparam scalar_type The scalar type of the model vectors.
+template <typename scalar_type>
+class model_intersector final {
+public:
+  //! A type definition for the model being intersected.
+  using model_type = model<scalar_type>;
+  //! A type definition for an intersection.
+  using intersection_type = intersection<scalar_type>;
+  //! A type definition for a ray.
+  using ray_type = ray<scalar_type>;
+  //! Constructs a new model intersector.
+  //! \param m_ A reference to the model to intersect.
+  constexpr model_intersector(const model_type& m_) noexcept : m(m_) {}
+  //! Detects intersection between a ray and the model surface.
+  intersection_type operator () (size_type face, const ray_type& r) const noexcept {
+    (void)face;
+    (void)r;
+    return intersection_type{};
+  }
+private:
+  //! The model being intersected.
+  const model_type& m;
+};
+
 } // namespace lbvh
