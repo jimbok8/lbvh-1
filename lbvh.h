@@ -1572,21 +1572,25 @@ intersection_type traverser<scalar_type, primitive_type, intersection_type>::ope
       continue;
     }
 
-    intersection_type isect;
+    intersection_type left_isect;
 
     if (node.left_is_leaf()) {
-      isect.primitive = node.left_leaf_index();
-      isect = intersector(primitives[isect.primitive], ray);
+      left_isect.primitive = node.left_leaf_index();
+      left_isect = intersector(primitives[left_isect.primitive], ray);
     } else {
       node_queue.push_back(node.left);
     }
 
+    intersection_type right_isect;
+
     if (node.right_is_leaf()) {
-      isect.primitive = node.right_leaf_index();
-      isect = intersector(primitives[isect.primitive], ray);
+      right_isect.primitive = node.right_leaf_index();
+      right_isect = intersector(primitives[right_isect.primitive], ray);
     } else {
       node_queue.push_back(node.right);
     }
+
+    auto isect = (left_isect < right_isect) ? left_isect : right_isect;
 
     if (!isect) {
       continue;
