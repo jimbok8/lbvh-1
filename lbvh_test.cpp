@@ -135,7 +135,7 @@ int check_bvh(const bvh<float>& bvh, int errors_fatal) {
 
   std::vector<size_type> leaf_counts(bvh.size() + 1);
 
-  for (size_type i = 0; i < bvh.size() + 1; i++) {
+  for (size_type i = 0; i < bvh.size(); i++) {
 
     if (bvh[i].left_is_leaf()) {
       leaf_counts.at(bvh[i].left_leaf_index())++;
@@ -208,6 +208,8 @@ public:
 
     for (size_type y = 0; y < y_res; y++) {
 
+      std::printf("iteration %lu of %lu\n", y, y_res);
+
       for (size_type x = 0; x < x_res; x++) {
 
         auto x_ndc =  (2 * (x + scalar_type(0.5)) / scalar_type(x_res)) - 1;
@@ -257,17 +259,15 @@ int run_test(const char* filename, int errors_fatal) {
 
   std::printf("Building BVH\n");
 
-  lbvh::model_aabb_converter<scalar_type> aabb_converter(model);
+  lbvh::triangle_aabb_converter<scalar_type> aabb_converter;
 
-  lbvh::model_intersector<scalar_type> intersector(model);
-
-  auto face_indices = model.get_face_indices();
+  lbvh::triangle_intersector<scalar_type> intersector;
 
   lbvh::builder<scalar_type> builder;
 
   auto start = std::chrono::high_resolution_clock::now();
 
-  auto bvh = builder(face_indices.data(), face_indices.size(), aabb_converter);
+  auto bvh = builder(model.data(), model.size(), aabb_converter);
 
   auto stop = std::chrono::high_resolution_clock::now();
 
@@ -286,7 +286,7 @@ int run_test(const char* filename, int errors_fatal) {
 
   std::printf("  Awesomeness! It works.\n");
 
-  traverser<scalar_type, size_type> traverser(bvh, face_indices.data());
+  traverser<scalar_type, triangle<scalar_type>> traverser(bvh, model.data());
 
   auto tracer_kern = [&traverser, &intersector](const ray<scalar_type>& r) {
 
@@ -299,9 +299,28 @@ int run_test(const char* filename, int errors_fatal) {
     };
   };
 
-  ray_scheduler<scalar_type> scheduler(1000, 1000);
+  size_type width = 640;
+  size_type height = 480;
+
+  ray_scheduler<scalar_type> scheduler(width, height);
 
   auto image = scheduler.make_frame(tracer_kern);
+
+  std::string ofilename("test-result-float-");
+  ofilename += std::to_string(sizeof(scalar_type) * 8);
+  ofilename += ".ppm";
+
+  FILE* file = std::fopen(ofilename.c_str(), "wb");
+  if (!file) {
+    std::fprintf(stderr, "Failed to open '%s'\n", ofilename.c_str());
+    return EXIT_FAILURE;
+  }
+
+  std::fprintf(file, "P6\n%lu %lu\n%lu\n", width, height, 255UL);
+
+  std::fwrite(image.data(), image.size(), 1, file);
+
+  std::fclose(file);
 
   return EXIT_SUCCESS;
 }
