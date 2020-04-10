@@ -146,6 +146,8 @@ public:
 template <typename scalar_type>
 class triangle_intersector final {
 public:
+  //! A type definition for a 2D vector.
+  using vec2_type = vec2<scalar_type>;
   //! A type definition for a triangle.
   using triangle_type = triangle<scalar_type>;
   //! A type definition for an intersection.
@@ -196,19 +198,10 @@ public:
     // At this point, we know we have a hit.
     // We just need to calculate the UV coordinates.
 
-    scalar_type uv[2] = {u, v};
-
-    uv[0] = tri.uv[0].x * (1.0f - u - v);
-    uv[1] = tri.uv[0].y * (1.0f - u - v);
-
-    uv[0] += tri.uv[1].x * u;
-    uv[1] += tri.uv[1].y * u;
-
-    uv[0] += tri.uv[2].x * v;
-    uv[1] += tri.uv[2].y * v;
+    vec2_type uv = (tri.uv[0] * (scalar_type(1.0) - u - v)) + (tri.uv[1] * u) + (tri.uv[2] * v);
 
     return intersection_type {
-      t, { 0, 0, 1 }, { uv[0], uv[1] }, 0
+      t, { 0, 0, 1 }, { uv.x, uv.y }, 0
     };
   }
 };
