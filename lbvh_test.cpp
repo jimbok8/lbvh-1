@@ -313,9 +313,9 @@ int run_test(const char* filename, int errors_fatal) {
     };
   };
 
-  size_type width = 2000;
+  size_type width = 800;
 
-  size_type height = 2000;
+  size_type height = 800;
 
   std::vector<unsigned char> image(width * height * 3);
 
@@ -335,7 +335,9 @@ int run_test(const char* filename, int errors_fatal) {
 
   auto trace_milli_seconds = trace_micro_seconds / 1000.0;
 
-  std::printf("  Completed in %6.03f ms.\n", trace_milli_seconds);
+  auto rays_per_second = width * height * 1000.0 / trace_milli_seconds;
+
+  std::printf("  Completed in %6.03f ms (%5.02fM primary rays per second).\n", trace_milli_seconds, rays_per_second / 1'000'000.0);
 
   std::string ofilename("test-result-float-");
   ofilename += std::to_string(sizeof(scalar_type) * 8);
