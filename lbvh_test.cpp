@@ -316,9 +316,9 @@ int run_test(const char* filename, int errors_fatal) {
     };
   };
 
-  size_type width = 800;
+  size_type width = 1080;
 
-  size_type height = 800;
+  size_type height = 720;
 
   std::vector<unsigned char> image(width * height * 3);
 

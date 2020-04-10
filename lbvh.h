@@ -330,7 +330,7 @@ struct alignas(sizeof(scalar_type) * 8) intersection final {
   //! A type definition for an index, used for tracking the intersected primitive.
   using index = typename associated_types<sizeof(scalar_type)>::uint_type;
   //! The distance factor between the ray and primitive.
-  scalar_type distance = std::numeric_limits<scalar_type>::max();
+  scalar_type distance = std::numeric_limits<scalar_type>::infinity();
   //! The normal at the point of intersection.
   vec3<scalar_type> normal {};
   //! The UV coordinates at the point of intersection.
@@ -342,13 +342,19 @@ struct alignas(sizeof(scalar_type) * 8) intersection final {
   //! \return True if this intersection has valid intersection data.
   //! False if it does not and no intersection was made.
   operator bool () const noexcept {
-    return distance != std::numeric_limits<scalar_type>::max();
+    return distance < std::numeric_limits<scalar_type>::infinity();
   }
   //! Compares two intersection instances.
   //!
   //! \return True if @p a has a distance factor less than @p b.
   bool operator < (const intersection<scalar_type>& other) const noexcept {
     return (distance < other.distance);
+  }
+  //! Compares the intersection distance with another distance.
+  //!
+  //! \return True if this intersection is less than @p t.
+  bool operator < (scalar_type t) const noexcept {
+    return distance < t;
   }
 };
 
@@ -487,7 +493,7 @@ public:
   //! takes a primitive and a ray and returns an instance of @ref intersection_type
   //! that indicates whether or not a hit was made.
   template <typename intersector_type>
-  intersection_type operator () (const ray_type& ray, intersector_type intersector) const;
+  intersection_type operator () (const ray_type& ray, const intersector_type& intersector) const noexcept;
 };
 
 //! \brief Contains the associated types for 32-bit sizes.
@@ -950,12 +956,18 @@ constexpr auto make_accel_ray(const ray<scalar_type>& r) noexcept {
 template <typename scalar_type>
 struct box_intersection final {
   //! The minimum distance to intersection.
-  scalar_type tmin;
+  scalar_type tmin = std::numeric_limits<scalar_type>::infinity();
   //! The maximum distance to intersection.
-  scalar_type tmax;
+  scalar_type tmax = 0;
   //! Indicates if this is a valid intersection.
   inline operator bool () const noexcept {
     return (tmax >= max(scalar_type(0), tmin));
+  }
+  //! Compares two box intersections by proximity.
+  //!
+  //! \return True if this box intersection is closer than @p other.
+  inline bool operator < (const box_intersection& other) const noexcept {
+    return tmin < other.tmin;
   }
 };
 
@@ -1079,14 +1091,14 @@ template <typename scalar_type>
 auto get_empty_aabb() noexcept {
   return aabb<scalar_type> {
     {
-      std::numeric_limits<scalar_type>::max(),
-      std::numeric_limits<scalar_type>::max(),
-      std::numeric_limits<scalar_type>::max()
+      std::numeric_limits<scalar_type>::infinity(),
+      std::numeric_limits<scalar_type>::infinity(),
+      std::numeric_limits<scalar_type>::infinity()
     },
     {
-      std::numeric_limits<scalar_type>::min(),
-      std::numeric_limits<scalar_type>::min(),
-      std::numeric_limits<scalar_type>::min()
+      -std::numeric_limits<scalar_type>::infinity(),
+      -std::numeric_limits<scalar_type>::infinity(),
+      -std::numeric_limits<scalar_type>::infinity()
     }
   };
 }
@@ -1140,10 +1152,11 @@ public:
   //!
   //! \param cvt The primitive to bounding box converter.
   //!
-  //! \param th_count The maximum thread count of the scheduler.
-  //! This is used to allocate an array for each each thread gets its own AABB.
-  scene_bounds_kernel(const primitive_type* p, size_type c, aabb_converter cvt, size_type th_count)
-    : primitives(p), count(c), converter(cvt), thread_boxes(th_count) {
+  //! \param thb The array of boxes per thread. Each thread
+  //! will find a box for a certain portion of the scene. This
+  //! array should have as many boxes as there are threads.
+  scene_bounds_kernel(const primitive_type* p, size_type c, aabb_converter cvt, box_type* thb)
+    : primitives(p), count(c), converter(cvt), thread_boxes(thb) {
   }
   //! Runs the kernel.
   //! Each thread accumulates its own bounding box
@@ -1165,22 +1178,6 @@ public:
 
     thread_boxes[div.idx] = box;
   }
-  //! After calling the kernel, this function may be used
-  //! to get the bounding box of the scene. Internally, this
-  //! function will get the union of each box calculated by
-  //! each thread issued by the scheduler.
-  //!
-  //! \return The bounding box of the scene.
-  auto get() const noexcept {
-
-    auto scene_box = get_empty_aabb<scalar_type>();
-
-    for (const auto& th_box : thread_boxes) {
-      scene_box = union_of(scene_box, th_box);
-    }
-
-    return scene_box;
-  }
 private:
   //! The array of primitives to get the bounding box of.
   const primitive_type* primitives;
@@ -1190,7 +1187,7 @@ private:
   aabb_converter converter;
   //! The array of boxes, each box allocated
   //! for a thread.
-  std::vector<box_type> thread_boxes;
+  box_type* thread_boxes;
 };
 
 //! \brief Used to get the domain of Morton coordinates,
@@ -1319,7 +1316,7 @@ public:
       auto batch_size = min(max_batch_size, range.end - i);
 
       for (size_type j = 0; j < batch_size; j++) {
-        auto center = center_of(converter(primitives[i]));
+        auto center = center_of(converter(primitives[i + j]));
         center_packet[0][j] = center.x;
         center_packet[1][j] = center.y;
         center_packet[2][j] = center.z;
@@ -1390,19 +1387,27 @@ public:
 
     using entry_vec = typename curve_type::entry_vec;
 
+    using box_type = aabb<scalar_type>;
+
     using scene_bounds_kernel_type = scene_bounds_kernel<scalar_type, primitive, aabb_converter>;
 
-    entry_vec entries(count);
+    std::vector<box_type> thread_boxes(scheduler.max_threads());
 
-    scene_bounds_kernel_type scene_bounds_kern(primitives, count, converter, scheduler.max_threads());
+    scene_bounds_kernel_type scene_bounds_kern(primitives, count, converter, thread_boxes.data());
 
     scheduler(scene_bounds_kern);
 
-    auto scene_box = scene_bounds_kern.get();
+    auto scene_box = get_empty_aabb<scalar_type>();
 
-    morton_curve_kernel<scalar_type, primitive> kernel(primitives, entries.data(), count);
+    for (const auto& th_box : thread_boxes) {
+      scene_box = union_of(scene_box, th_box);
+    }
 
-    scheduler(kernel, scene_box, converter);
+    entry_vec entries(count);
+
+    morton_curve_kernel<scalar_type, primitive> curve_kernel(primitives, entries.data(), count);
+
+    scheduler(curve_kernel, scene_box, converter);
 
     return curve_type(std::move(entries));
   }
@@ -1588,6 +1593,50 @@ private:
   node_type* nodes;
 };
 
+//! Used for traversing the BVH.
+//!
+//! \tparam scalar_type The floating point type to use in the traversal.
+//!
+//! \tparam max The maximum number of entries to allocate on the stack.
+template <typename scalar_type, size_type max>
+class traversal_stack final {
+public:
+  //! Contains information regarding a ndoe
+  //! to be traversed.
+  struct entry final {
+    //! The index of the node to traverse.
+    size_type node_index;
+    //! The minimum scale at which the ray
+    //! hits this node.
+    scalar_type tmin;
+  };
+  //! Indicates the number of entries remaining
+  //! in the stack.
+  inline size_type remaining() const noexcept {
+    return pos;
+  }
+  //! Removes an entry from the stack.
+  auto pop() noexcept {
+    if (!pos) {
+      return entry { 0, std::numeric_limits<scalar_type>::infinity() };
+    }
+    return entries[--pos];
+  }
+  //! Pushes an item to the stack.
+  //! \param i The index of the node.
+  //! \param t The scale at which the ray intersects this node.
+  void push(size_type i, scalar_type t) noexcept {
+    if (pos < max) {
+      entries[pos++] = entry { i, t };
+    }
+  }
+private:
+  //! The position of the "stack pointer."
+  size_type pos = 0;
+  //! The array of entries to be filled.
+  entry entries[max];
+};
+
 } // namespace detail
 
 template <typename scalar_type, typename task_scheduler>
@@ -1660,68 +1709,74 @@ void builder<scalar_type, task_scheduler>::fit_boxes(node_vec& nodes, const prim
 
 template <typename scalar_type, typename primitive_type, typename intersection_type>
 template <typename intersector_type>
-intersection_type traverser<scalar_type, primitive_type, intersection_type>::operator () (const ray_type& ray, intersector_type intersector) const {
+intersection_type traverser<scalar_type, primitive_type, intersection_type>::operator () (const ray_type& ray, const intersector_type& intersector) const noexcept {
 
-  constexpr size_type max_queue = 128;
+  using box_intersection_type = detail::box_intersection<scalar_type>;
 
-  size_type node_queue[max_queue];
+  detail::traversal_stack<scalar_type, 128> stack;
 
-  node_queue[0] = 0;
-
-  size_type queue_size = 1;
-
-  auto pop_node = [&queue_size](const size_type* queue) {
-    auto i = queue[queue_size - 1];
-    queue_size--;
-    return i;
-  };
-
-  auto push_node = [&queue_size](size_type* queue, size_type i) {
-    if (queue_size < max_queue) {
-      queue[queue_size++] = i;
-    }
-  };
+  stack.push(0, std::numeric_limits<scalar_type>::infinity());
 
   auto accel_r = detail::make_accel_ray(ray);
 
-  intersection_type closest_isect;
+  auto intersect_primitive = [](const auto& intersector, const auto* p, auto index, const auto& r) {
+    auto isect = intersector(p[index], r);
+    isect.primitive = index;
+    return isect;
+  };
 
-  while (queue_size > 0) {
+  intersection_type closest;
 
-    auto i = pop_node(node_queue);
+  while (stack.remaining()) {
 
-    const auto& node = bvh_[i];
+    auto entry = stack.pop();
 
-    if (!detail::intersect(node.box, accel_r)) {
+    if (closest < entry.tmin) {
+      // We've already got a closer intersection than
+      // what can be found at this node, we can skip this.
       continue;
     }
 
-    intersection_type left_isect;
+    const auto& node = bvh_[entry.node_index];
+
+    box_intersection_type left_box_isect;
 
     if (node.left_is_leaf()) {
-      left_isect.primitive = node.left_leaf_index();
-      left_isect = intersector(primitives[left_isect.primitive], ray);
+      auto left_isect = intersect_primitive(intersector, primitives, node.left_leaf_index(), ray);
+      if (left_isect < closest) {
+        closest = left_isect;
+      }
     } else {
-      push_node(node_queue, node.left);
+      left_box_isect = detail::intersect(bvh_[node.left].box, accel_r);
     }
 
-    intersection_type right_isect;
+    box_intersection_type right_box_isect;
 
     if (node.right_is_leaf()) {
-      right_isect.primitive = node.right_leaf_index();
-      right_isect = intersector(primitives[right_isect.primitive], ray);
+      auto right_isect = intersect_primitive(intersector, primitives, node.right_leaf_index(), ray);
+      if (right_isect < closest) {
+        closest = right_isect;
+      }
     } else {
-      push_node(node_queue, node.right);
+      right_box_isect = detail::intersect(bvh_[node.right].box, accel_r);
     }
 
-    auto isect = (left_isect < right_isect) ? left_isect : right_isect;
-
-    if (isect < closest_isect) {
-      std::swap(isect, closest_isect);
+    if (left_box_isect && right_box_isect) {
+      if (left_box_isect < right_box_isect) {
+        stack.push(node.left,   left_box_isect.tmin);
+        stack.push(node.right, right_box_isect.tmin);
+      } else {
+        stack.push(node.right, right_box_isect.tmin);
+        stack.push(node.left,   left_box_isect.tmin);
+      }
+    } else if (left_box_isect) {
+      stack.push(node.left, left_box_isect.tmin);
+    } else if (right_box_isect) {
+      stack.push(node.right, right_box_isect.tmin);
     }
   }
 
-  return closest_isect;
+  return closest;
 }
 
 } // namespace lbvh
