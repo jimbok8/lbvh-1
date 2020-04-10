@@ -364,16 +364,31 @@ struct ray final {
   //! The direction at which the ray is pointing at.
   //! Usually, this is not normalized.
   vec_type dir;
-  //! The reciprocal of the ray direction.
-  vec_type rcp_dir;
-  //! Constructs a ray from a position and direction vector.
-  //!
-  //! \param p The position the ray is being casted from.
-  //!
-  //! \param d The direction the ray is pointing at.
-  //! This does not have to be a normalized vector.
-  inline constexpr ray(const vec_type& p,
-                       const vec_type& d) noexcept;
+};
+
+//! \brief Represents a single ray with
+//! precomputed acceleration data.
+//!
+//! \tparam scalar_type The scalar type of the vector components.
+template <typename scalar_type>
+struct accel_ray final {
+  //! A type definition for the ray used by this structure.
+  using ray_type = ray<scalar_type>;
+  //! A type definition for vector types used by this structure.
+  using vec3_type = vec3<scalar_type>;
+  //! The type to use for octant indices.
+  using index_type = typename associated_types<sizeof(scalar_type)>::uint_type;
+  //! The original ray from which the acceleration
+  //! data was computed.
+  ray_type r;
+  //! The reciprocal direction vector.
+  vec3_type rcp_dir;
+  //! The inverse position vector.
+  vec3_type inv_pos;
+  //! The indices for the octant that the ray falls into.
+  index_type octants[3];
+  //! The inverse octant indices.
+  index_type inv_octants[3];
 };
 
 //! \brief A packet of 3D vectors,
@@ -650,6 +665,18 @@ auto operator - (const vec3<scalar_type>& a,
   };
 }
 
+//! \brief Negates a vector.
+//!
+//! \return The negated result of @p in.
+template <typename scalar_type>
+inline auto operator - (const vec3<scalar_type>& in) noexcept {
+  return vec3<scalar_type> {
+    -in.x,
+    -in.y,
+    -in.z
+  };
+}
+
 //! \brief Calculates the product between a vector and a scalar value.
 //!
 //! \tparam scalar_type The scalar type of the vector.
@@ -884,33 +911,88 @@ struct loop_range final {
   }
 };
 
+//! Constructs an accelerated ray structure.
+//!
+//! \param r The ray from which to build the structure from.
+template <typename scalar_type>
+constexpr auto make_accel_ray(const ray<scalar_type>& r) noexcept {
+
+  using index_type = typename accel_ray<scalar_type>::index_type;
+
+  auto rcp_dir = reciprocal(r.dir);
+
+  index_type octants[3] {
+    (r.dir.x > 0) ? index_type(0) : index_type(3),
+    (r.dir.y > 0) ? index_type(1) : index_type(4),
+    (r.dir.z > 0) ? index_type(2) : index_type(5)
+  };
+
+  return accel_ray<scalar_type> {
+    r,
+    rcp_dir,
+    hadamard_mul(-r.pos, rcp_dir),
+    {
+      octants[0],
+      octants[1],
+      octants[2]
+    },
+    {
+      3 - octants[0],
+      5 - octants[1],
+      7 - octants[2]
+    }
+  };
+}
+
+//! Represents a ray intersection with a box.
+//!
+//! \tparam scalar_type The scalar type of the intersection distances.
+template <typename scalar_type>
+struct box_intersection final {
+  //! The minimum distance to intersection.
+  scalar_type tmin;
+  //! The maximum distance to intersection.
+  scalar_type tmax;
+  //! Indicates if this is a valid intersection.
+  inline operator bool () const noexcept {
+    return (tmax >= max(scalar_type(0), tmin));
+  }
+};
+
 //! Checks for ray intersection with a bounding box.
 //!
 //! \tparam scalar_type The type used for vector components.
 //!
-//! \return True if the ray intersects, false otherwise.
+//! \return A box intersection instance, indicating
+//! if there was a hit or not.
 template <typename scalar_type>
-auto intersect(const aabb<scalar_type>& box, const ray<scalar_type>& r) noexcept {
+auto intersect(const aabb<scalar_type>& box, const accel_ray<scalar_type>& accel_r) noexcept {
 
-  auto tx1 = (box.min.x - r.pos.x) * r.rcp_dir.x;
-  auto tx2 = (box.max.x - r.pos.x) * r.rcp_dir.x;
+  scalar_type bounds[6] {
+    box.min.x,
+    box.min.y,
+    box.min.z,
+    box.max.x,
+    box.max.y,
+    box.max.z
+  };
 
-  auto tmin = min(tx1, tx2);
-  auto tmax = max(tx1, tx2);
+  scalar_type t_near[3] {
+    (bounds[accel_r.octants[0]] * accel_r.rcp_dir.x) + accel_r.inv_pos.x,
+    (bounds[accel_r.octants[1]] * accel_r.rcp_dir.y) + accel_r.inv_pos.y,
+    (bounds[accel_r.octants[2]] * accel_r.rcp_dir.z) + accel_r.inv_pos.z
+  };
 
-  auto ty1 = (box.min.y - r.pos.y) * r.rcp_dir.y;
-  auto ty2 = (box.max.y - r.pos.y) * r.rcp_dir.y;
+  scalar_type t_far[3] {
+    (bounds[accel_r.inv_octants[0]] * accel_r.rcp_dir.x) + accel_r.inv_pos.x,
+    (bounds[accel_r.inv_octants[1]] * accel_r.rcp_dir.y) + accel_r.inv_pos.y,
+    (bounds[accel_r.inv_octants[2]] * accel_r.rcp_dir.z) + accel_r.inv_pos.z
+  };
 
-  tmin = max(tmin, min(ty1, ty2));
-  tmax = min(tmax, max(ty1, ty2));
-
-  auto tz1 = (box.min.z - r.pos.z) * r.rcp_dir.z;
-  auto tz2 = (box.max.z - r.pos.z) * r.rcp_dir.z;
-
-  tmin = max(tmin, min(tz1, tz2));
-  tmax = min(tmax, max(tz1, tz2));
-
-  return (tmax >= max(scalar_type(0), tmin));
+  return box_intersection<scalar_type> {
+    max(max(t_near[0], t_near[1]), t_near[2]),
+    min(min(t_far[0], t_far[1]), t_far[2]),
+  };
 }
 
 //! \brief This class represents a space filling curve.
@@ -1508,10 +1590,6 @@ private:
 
 } // namespace detail
 
-template <typename scalar_type>
-constexpr ray<scalar_type>::ray(const vec_type& p, const vec_type& d) noexcept
-  : pos(p), dir(d), rcp_dir(math::reciprocal(d)) {}
-
 template <typename scalar_type, typename task_scheduler>
 template <typename primitive, typename aabb_converter>
 auto builder<scalar_type, task_scheduler>::operator () (const primitive* primitives, size_type count, aabb_converter converter) -> bvh_type {
@@ -1596,6 +1674,8 @@ intersection_type traverser<scalar_type, primitive_type, intersection_type>::ope
     return i;
   };
 
+  auto accel_r = detail::make_accel_ray(ray);
+
   intersection_type closest_isect;
 
   while (!node_queue.empty()) {
@@ -1604,7 +1684,7 @@ intersection_type traverser<scalar_type, primitive_type, intersection_type>::ope
 
     const auto& node = bvh_[i];
 
-    if (!detail::intersect(node.box, ray)) {
+    if (!detail::intersect(node.box, accel_r)) {
       continue;
     }
 
