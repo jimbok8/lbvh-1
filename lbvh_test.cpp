@@ -208,8 +208,6 @@ public:
 
     for (size_type y = 0; y < y_res; y++) {
 
-      std::printf("iteration %lu of %lu\n", y, y_res);
-
       for (size_type x = 0; x < x_res; x++) {
 
         auto x_ndc =  (2 * (x + scalar_type(0.5)) / scalar_type(x_res)) - 1;
