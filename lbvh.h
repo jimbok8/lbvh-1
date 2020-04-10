@@ -678,6 +678,29 @@ vec3<scalar_type> normalize(const vec3<scalar_type>& v) noexcept {
   return v * l_inv;
 }
 
+//! \brief Multiplies a 2D vector by a scalar value.
+//!
+//! \return The product of @p a and @p b.
+template <typename scalar_type>
+vec2<scalar_type> operator * (const vec2<scalar_type>& a, scalar_type b) noexcept {
+  return vec2<scalar_type> {
+    a.x * b,
+    a.y * b
+  };
+}
+
+//! \brief Computes the sum of two 2D vectors.
+//!
+//! \return The sum of @p a and @p b.
+template <typename scalar_type>
+vec2<scalar_type> operator + (const vec2<scalar_type>& a,
+                              const vec2<scalar_type>& b) noexcept {
+  return vec2<scalar_type> {
+    a.x + b.x,
+    a.y + b.y
+  };
+}
+
 //! \brief This structure implements various vector packet operations.
 //! Since these operations require various template parameters, they are
 //! best implemented in a structure where type definitions can make the code
