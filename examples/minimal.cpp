@@ -155,7 +155,10 @@ int main() {
         -1
       };
 
-      lbvh::ray<float> r({ 0, 0, 5 }, ray_dir);
+      lbvh::ray<float> r {
+        { 0, 0, 5 },
+        ray_dir
+      };
 
       auto isect = traverser(r, intersect_sphere);
       if (isect) {
