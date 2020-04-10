@@ -180,16 +180,30 @@ struct color final {
 //! test traversal.
 template <typename scalar_type>
 class ray_scheduler final {
+  //! A type definition for 3D vectors.
+  using vec3_type = vec3<scalar_type>;
+  //! A type definition for a single ray.
+  using ray_type = ray<scalar_type>;
   //! The X resolution of the image to produce.
   size_type x_res;
   //! The Y resolution of the image to produce.
   size_type y_res;
   //! The image buffer to render the samples to.
   unsigned char* image_buf;
+  //! The position of the camera.
+  vec3_type cam_pos { 1.6, 1.3, 1.6 };
+  //! The direction of "up".
+  vec3_type cam_up { 0, 1, 0 };
+  //! Whether the camera is looking at.
+  vec3_type cam_target { 0, 0, 0 };
 public:
   //! Constructs a new instance of the ray scheduler.
   ray_scheduler(size_type width, size_type height, unsigned char* buf) noexcept
     : x_res(width), y_res(height), image_buf(buf) { }
+  //! Moves the camera to a new location.
+  void move_cam(const vec3_type& v) {
+    cam_pos = v;
+  }
   //! Executes a kernel across all rays generated from the camera.
   //!
   //! \param kern The ray tracing kernel to pass the rays to.
@@ -199,6 +213,12 @@ public:
   //! and height parameters given by the constructor.
   template <typename trace_kernel>
   void operator () (const work_division& div, trace_kernel kern) {
+
+    using namespace lbvh::math;
+
+    auto cam_dir = normalize(cam_target - cam_pos);
+    auto cam_u = normalize(cross(cam_dir, cam_up));
+    auto cam_v = normalize(cross(cam_u, cam_dir));
 
     auto aspect_ratio = scalar_type(x_res) / y_res;
 
@@ -215,13 +235,7 @@ public:
         auto x_ndc =  (2 * (x + scalar_type(0.5)) / scalar_type(x_res)) - 1;
         auto y_ndc = -(2 * (y + scalar_type(0.5)) / scalar_type(y_res)) + 1;
 
-        vec3<scalar_type> ray_dir {
-          x_ndc * aspect_ratio * fov,
-          y_ndc * fov,
-          -1
-        };
-
-        ray<scalar_type> r({ 0, 0, 5 }, ray_dir);
+        ray_type r(cam_pos, normalize((cam_u * x_ndc) + (cam_v * y_ndc) + (cam_dir * fov * aspect_ratio)));
 
         auto color = kern(r);
 
@@ -284,6 +298,8 @@ int run_test(const char* filename, int errors_fatal) {
 
   std::printf("  Awesomeness! It works.\n");
 
+  std::printf("Traversing resultant BVH.\n");
+
   traverser<scalar_type, triangle<scalar_type>> traverser(bvh, model.data());
 
   auto tracer_kern = [&traverser, &intersector](const ray<scalar_type>& r) {
@@ -305,9 +321,21 @@ int run_test(const char* filename, int errors_fatal) {
 
   ray_scheduler<scalar_type> r_scheduler(width, height, image.data());
 
+  r_scheduler.move_cam({ -1000, 1000, 0 });
+
   default_scheduler thread_scheduler;
 
+  auto trace_start = std::chrono::high_resolution_clock::now();
+
   thread_scheduler(r_scheduler, tracer_kern);
+
+  auto trace_stop = std::chrono::high_resolution_clock::now();
+
+  auto trace_micro_seconds = std::chrono::duration_cast<std::chrono::microseconds>(trace_stop - trace_start).count();
+
+  auto trace_milli_seconds = trace_micro_seconds / 1000.0;
+
+  std::printf("  Completed in %6.03f ms.\n", trace_milli_seconds);
 
   std::string ofilename("test-result-float-");
   ofilename += std::to_string(sizeof(scalar_type) * 8);
