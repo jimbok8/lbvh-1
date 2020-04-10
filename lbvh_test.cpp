@@ -184,9 +184,12 @@ class ray_scheduler final {
   size_type x_res;
   //! The Y resolution of the image to produce.
   size_type y_res;
+  //! The image buffer to render the samples to.
+  unsigned char* image_buf;
 public:
   //! Constructs a new instance of the ray scheduler.
-  ray_scheduler(size_type width, size_type height) : x_res(width), y_res(height) { }
+  ray_scheduler(size_type width, size_type height, unsigned char* buf) noexcept
+    : x_res(width), y_res(height), image_buf(buf) { }
   //! Executes a kernel across all rays generated from the camera.
   //!
   //! \param kern The ray tracing kernel to pass the rays to.
@@ -195,18 +198,17 @@ public:
   //! The resolution of the buffer is specified by the width
   //! and height parameters given by the constructor.
   template <typename trace_kernel>
-  auto make_frame(trace_kernel kern) {
-
-    //! The image buffer to plot the colors to.
-    std::vector<unsigned char> image_buf(x_res * y_res * 3);
-
-    auto* pixels = image_buf.data();
+  void operator () (const work_division& div, trace_kernel kern) {
 
     auto aspect_ratio = scalar_type(x_res) / y_res;
 
     auto fov = 0.75f;
 
-    for (size_type y = 0; y < y_res; y++) {
+    auto range = detail::loop_range(div, y_res);
+
+    auto* pixels = image_buf + (range.begin * x_res * 3);
+
+    for (size_type y = range.begin; y < range.end; y++) {
 
       for (size_type x = 0; x < x_res; x++) {
 
@@ -230,8 +232,6 @@ public:
         pixels += 3;
       }
     }
-
-    return image_buf;
   }
 };
 
@@ -297,12 +297,17 @@ int run_test(const char* filename, int errors_fatal) {
     };
   };
 
-  size_type width = 640;
-  size_type height = 480;
+  size_type width = 2000;
 
-  ray_scheduler<scalar_type> scheduler(width, height);
+  size_type height = 2000;
 
-  auto image = scheduler.make_frame(tracer_kern);
+  std::vector<unsigned char> image(width * height * 3);
+
+  ray_scheduler<scalar_type> r_scheduler(width, height, image.data());
+
+  default_scheduler thread_scheduler;
+
+  thread_scheduler(r_scheduler, tracer_kern);
 
   std::string ofilename("test-result-float-");
   ofilename += std::to_string(sizeof(scalar_type) * 8);
