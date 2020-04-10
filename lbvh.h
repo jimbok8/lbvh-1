@@ -1716,10 +1716,6 @@ intersection_type traverser<scalar_type, primitive_type, intersection_type>::ope
 
     auto isect = (left_isect < right_isect) ? left_isect : right_isect;
 
-    if (!isect) {
-      continue;
-    }
-
     if (isect < closest_isect) {
       std::swap(isect, closest_isect);
     }
