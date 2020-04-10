@@ -545,6 +545,19 @@ auto hadamard_mul(const vec3<scalar_type>& a,
   };
 }
 
+//! \brief Calculates the cross product between two 3D vectors.
+//!
+//! \return The cross product of @p a and @p b.
+template <typename scalar_type>
+inline constexpr vec3<scalar_type> cross(const vec3<scalar_type>& a,
+                                         const vec3<scalar_type>& b) noexcept {
+  return vec3<scalar_type> {
+    (a.y * b.z) - (a.z * b.y),
+    (a.z * b.x) - (a.x * b.z),
+    (a.x * b.y) - (a.y * b.x)
+  };
+}
+
 //! \brief Calculates the dot product of two 3D vectors.
 //!
 //! \return The dot product of @p a and @p b.
