@@ -1662,25 +1662,33 @@ template <typename scalar_type, typename primitive_type, typename intersection_t
 template <typename intersector_type>
 intersection_type traverser<scalar_type, primitive_type, intersection_type>::operator () (const ray_type& ray, intersector_type intersector) const {
 
-  using traversal_queue = std::vector<size_type>;
+  constexpr size_type max_queue = 128;
 
-  traversal_queue node_queue;
+  size_type node_queue[max_queue];
 
-  node_queue.push_back(0);
+  node_queue[0] = 0;
 
-  auto pop = [](traversal_queue& queue) {
-    auto i = queue[queue.size() - 1];
-    queue.pop_back();
+  size_type queue_size = 1;
+
+  auto pop_node = [&queue_size](const size_type* queue) {
+    auto i = queue[queue_size - 1];
+    queue_size--;
     return i;
+  };
+
+  auto push_node = [&queue_size](size_type* queue, size_type i) {
+    if (queue_size < max_queue) {
+      queue[queue_size++] = i;
+    }
   };
 
   auto accel_r = detail::make_accel_ray(ray);
 
   intersection_type closest_isect;
 
-  while (!node_queue.empty()) {
+  while (queue_size > 0) {
 
-    auto i = pop(node_queue);
+    auto i = pop_node(node_queue);
 
     const auto& node = bvh_[i];
 
@@ -1694,7 +1702,7 @@ intersection_type traverser<scalar_type, primitive_type, intersection_type>::ope
       left_isect.primitive = node.left_leaf_index();
       left_isect = intersector(primitives[left_isect.primitive], ray);
     } else {
-      node_queue.push_back(node.left);
+      push_node(node_queue, node.left);
     }
 
     intersection_type right_isect;
@@ -1703,7 +1711,7 @@ intersection_type traverser<scalar_type, primitive_type, intersection_type>::ope
       right_isect.primitive = node.right_leaf_index();
       right_isect = intersector(primitives[right_isect.primitive], ray);
     } else {
-      node_queue.push_back(node.right);
+      push_node(node_queue, node.right);
     }
 
     auto isect = (left_isect < right_isect) ? left_isect : right_isect;
