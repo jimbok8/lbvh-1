@@ -235,7 +235,10 @@ public:
         auto x_ndc =  (2 * (x + scalar_type(0.5)) / scalar_type(x_res)) - 1;
         auto y_ndc = -(2 * (y + scalar_type(0.5)) / scalar_type(y_res)) + 1;
 
-        ray_type r(cam_pos, normalize((cam_u * x_ndc) + (cam_v * y_ndc) + (cam_dir * fov * aspect_ratio)));
+        ray_type r {
+          cam_pos,
+          normalize((cam_u * x_ndc) + (cam_v * y_ndc) + (cam_dir * fov * aspect_ratio))
+        };
 
         auto color = kern(r);
 
