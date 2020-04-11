@@ -45,7 +45,14 @@
 
 #if (__cplusplus >= 201703L) && !(defined LBVH_NO_THREADS)
 #include <execution>
+#endif
+
+#ifndef LBVH_NO_THREADS
 #include <thread>
+#endif
+
+#ifdef _MSC_VER
+#include <intrin.h>
 #endif
 
 #include <cmath>
@@ -1024,8 +1031,11 @@ public:
   using entry_vec = std::vector<entry>;
   //! Constructs a space filling curve.
   //! \param entries_ The entries to assign the curve.
-  space_filling_curve(entry_vec&& entries_)
+  space_filling_curve(entry_vec&& entries_) noexcept
     : entries(std::move(entries_)) {}
+  //! Constructs a curve via move semantics.
+  space_filling_curve(space_filling_curve&& other) noexcept
+    : entries(std::move(other.entries)) {}
   //! Sorts the space filling curve based on the code of each entry.
   void sort() {
 
@@ -1647,6 +1657,8 @@ auto builder<scalar_type, task_scheduler>::operator () (const primitive* primiti
 
   using curve_builder_type = detail::morton_curve_builder<scalar_type, task_scheduler>;
 
+  using code_type = typename curve_builder_type::code_type;
+
   curve_builder_type curve_builder(scheduler);
 
   auto curve = curve_builder(primitives, count, converter);
@@ -1655,9 +1667,9 @@ auto builder<scalar_type, task_scheduler>::operator () (const primitive* primiti
 
   std::vector<node_type> node_vec(curve.size() - 1);
 
-  detail::builder_kernel builder_kernel(curve, node_vec.data());
+  detail::builder_kernel<code_type, scalar_type> builder_kern(curve, node_vec.data());
 
-  scheduler(builder_kernel);
+  scheduler(builder_kern);
 
   fit_boxes(node_vec, primitives, converter);
 

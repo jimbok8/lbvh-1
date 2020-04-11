@@ -3,3 +3,4 @@ examples/minimal
 config.mk
 *.ppm
 *.o
+build
